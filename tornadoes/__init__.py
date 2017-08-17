@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from tornado.gen import coroutine, Return
 
 from tornadoes.models import BulkList
 
@@ -6,140 +7,136 @@ from six.moves.urllib.parse import urlencode, urlparse
 from tornado.escape import json_encode, json_decode
 from tornado.ioloop import IOLoop
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
-from tornado.concurrent import return_future
 
 
 class ESConnection(object):
+    __MATCH_ALL_QUERY = {"query": {"match_all": {}}}
 
-    def __init__(self, host='localhost', port='9200', io_loop=None, protocol='http', custom_client=None):
+    # TODO : timeout, max_retries, retry_on_timeout
+    def __init__(self, host='localhost', port='9200', io_loop=None, protocol='http', custom_client=None,
+                 http_request_kwargs=None):
         self.io_loop = io_loop or IOLoop.instance()
         self.url = "%(protocol)s://%(host)s:%(port)s" % {"protocol": protocol, "host": host, "port": port}
         self.bulk = BulkList()
         self.client = custom_client or AsyncHTTPClient(self.io_loop)
-        self.httprequest_kwargs = {}     # extra kwargs passed to tornado's HTTPRequest class e.g. request_timeout
 
-    @staticmethod
-    def from_uri(uri, io_loop=None, custom_client=None):
+        # extra kwargs passed to tornado's HTTPRequest class e.g. request_timeout
+        self.http_request_kwargs = http_request_kwargs or {}
+
+    @classmethod
+    def from_uri(cls, uri, io_loop=None, custom_client=None, http_request_kwargs=None):
         parsed = urlparse(uri)
 
         if not parsed.hostname or not parsed.scheme:
             raise ValueError('Invalid URI')
 
-        return ESConnection(**{
-            'host': parsed.hostname,
-            'protocol': parsed.scheme,
-            'port': parsed.port,
-            'io_loop': io_loop,
-            'custom_client': custom_client
-        })
+        return cls(host=parsed.hostname, protocol=parsed.scheme, port=parsed.port, io_loop=io_loop,
+                   custom_client=custom_client, http_request_kwargs=http_request_kwargs)
 
-    def create_path(self, method, **kwargs):
-        index = kwargs.pop('index', '_all')
-        doc_type = '/%s' % kwargs.pop('type', '')
-
+    @staticmethod
+    def create_path(method, index='_all', doc_type='', **kwargs):
         parameters = {}
+
         for param, value in kwargs.items():
             parameters[param] = value
 
-        path = "/%(index)s%(type)s/_%(method)s" % {
-            "method": method,
-            "index": index,
-            "type": doc_type
-        }
+        path = "/%(index)s/%(type)s/_%(method)s" % {"method": method, "index": index, "type": doc_type}
+
         if parameters:
             path += '?' + urlencode(parameters)
 
         return path
 
-    @return_future
-    def search(self, callback, **kwargs):
-        path = self.create_path("search", **kwargs)
-        source = json_encode(kwargs.get('source', {
-            "query": {
-                "match_all": {}
-            }
-        }))
-        self.post_by_path(path, callback, source)
+    @coroutine
+    def search(self, index='_all', doc_type='', body=None, **kwargs):
+        path = self.create_path('search', index, doc_type, **kwargs)
 
-    def multi_search(self, index, source):
-        self.bulk.add(index, source)
+        body = body or self.__MATCH_ALL_QUERY
+        response = yield self.post_by_path(path, body)
 
-    @return_future
-    def apply_search(self, callback, params={}):
-        path = "/_msearch"
+        raise Return(response)
+
+    def multi_search(self, index, body):
+        self.bulk.add(index, body)
+
+    @coroutine
+    def apply_search(self, params=None):
+        params = params or {}
+        path = '/_msearch'
+
         if params:
             path = "%s?%s" % (path, urlencode(params))
-        source = self.bulk.prepare_search()
-        self.post_by_path(path, callback, source=source)
 
-    def post_by_path(self, path, callback, source):
+        body = self.bulk.prepare_search()
+
+        response = yield self.post_by_path(path, body)
+        raise Return(response)
+
+    @coroutine
+    def post_by_path(self, path, body):
         url = '%(url)s%(path)s' % {"url": self.url, "path": path}
-        request_http = HTTPRequest(url, method="POST", body=source, **self.httprequest_kwargs)
-        self.client.fetch(request=request_http, callback=callback)
+        request_http = HTTPRequest(url, method="POST", body=body, **self.http_request_kwargs)
 
-    @return_future
-    def get_by_path(self, path, callback):
+        # TODO : retry if needed
+        response = yield self.client.fetch(request=request_http)
+        raise Return(response)
+
+    @coroutine
+    def get_by_path(self, path):
         url = '%(url)s%(path)s' % {"url": self.url, "path": path}
-        self.client.fetch(url, callback, **self.httprequest_kwargs)
 
-    @return_future
-    def get(self, index, type, uid, callback, parameters=None):
-        def to_dict_callback(response):
-            source = json_decode(response.body)
-            callback(source)
-        self.request_document(index, type, uid, callback=to_dict_callback, parameters=parameters)
+        # TODO : retry if needed
+        response = yield self.client.fetch(url, **self.http_request_kwargs)
+        raise Return(response)
 
-    @return_future
-    def put(self, index, type, uid, contents, parameters=None, callback=None):
-        self.request_document(
-            index, type, uid, "PUT", body=json_encode(contents),
-            parameters=parameters, callback=callback)
+    @coroutine
+    def get(self, index, doc_type, doc_id, parameters=None):
+        response = yield self.request_document(index, doc_type, doc_id, parameters=parameters)
+        source = json_decode(response.body)
+        raise Return(source)
 
-    @return_future
-    def update(self, index, type, uid, contents, callback=None):
-        path = "/%(index)s/%(type)s/%(uid)s/_update" % {
-            "index": index,
-            "type": type,
-            "uid": uid
-        }
+    @coroutine
+    def put(self, index, doc_type, doc_id, contents, parameters=None):
+        response = yield self.request_document(index, doc_type, doc_id, "PUT", body=json_encode(contents),
+                                               parameters=parameters)
+        raise Return(response)
 
-        partial = { "doc": contents }
+    @coroutine
+    def update(self, index, doc_type, doc_id, contents):
+        path = "/%(index)s/%(type)s/%(id)s/_update" % {"index": index, "type": doc_type, "id": doc_id}
 
-        self.post_by_path(path, callback, source=json_encode(partial))
+        partial = {"doc": contents}
 
-    @return_future
-    def delete(self, index, type, uid, parameters=None, callback=None):
-        self.request_document(index, type, uid, "DELETE", parameters=parameters, callback=callback)
+        response = yield self.post_by_path(path, json_encode(partial))
+        raise Return(response)
 
-    @return_future
-    def count(self, index="_all", type=None, source='', parameters=None, callback=None):
-        path = '/{}'.format(index)
+    @coroutine
+    def delete(self, index, doc_type, doc_id, parameters=None):
+        response = yield self.request_document(index, doc_type, doc_id, "DELETE", parameters=parameters)
+        raise Return(response)
 
-        if type:
-            path += '/{}'.format(type)
+    @coroutine
+    def count(self, index="_all", doc_type='', body=None, **kwargs):
+        path = self.create_path('count', index=index, doc_type=doc_type, **kwargs)
 
-        path += '/_count'
+        body = body or self.__MATCH_ALL_QUERY
+        response = yield self.post_by_path(path, body)
 
-        if parameters:
-            path += '?{}'.format(urlencode(parameters or {}))
+        raise Return(response)
 
-        if source:
-            source = json_encode(source)
+    @coroutine
+    def request_document(self, index='_all', doc_type='', doc_id='', method="GET", body=None, parameters=None):
+        path = "/%(index)s/%(type)s/%(doc_id)s" % {"index": index, "type": doc_type, "doc_id": doc_id}
 
-        self.post_by_path(path=path, callback=callback, source=source)
-
-    def request_document(self, index, type, uid, method="GET", body=None, parameters=None, callback=None):
-        path = '/{index}/{type}/{uid}'.format(**locals())
-        url = '%(url)s%(path)s?%(querystring)s' % {
-            "url": self.url,
-            "path": path,
-            "querystring": urlencode(parameters or {})
-        }
-        request_arguments = dict(self.httprequest_kwargs)
+        url = '%(url)s%(path)s?%(querystring)s' % \
+              {"url": self.url, "path": path, "querystring": urlencode(parameters or {})}
+        request_arguments = dict(self.http_request_kwargs)
         request_arguments['method'] = method
 
         if body is not None:
             request_arguments['body'] = body
 
         request = HTTPRequest(url, **request_arguments)
-        self.client.fetch(request, callback)
+
+        response = yield self.client.fetch(request)
+        raise Return(response)
