@@ -2,18 +2,19 @@
 
 from setuptools import setup, find_packages
 
-VERSION = '2.4.2'
+VERSION = '3.0.0'
 
 setup(
-    name='tornadoes',
+    name='tornadoes-lm',
     version=VERSION,
-    description="A tornado-powered python library that provides asynchronous access to elasticsearch.",
+    description="""A tornado-powered python library that provides asynchronous access to elasticsearch.
+                   Extends the tornadoes package.""",
     long_description="""\
-    A tornado-powered python library that provides asynchronous access to elasticsearch.""",
-    author='Team Search of globo.com',
-    author_email='busca@corp.globo.com',
-    url='http://github.com/globocom/tornado-es',
-    download_url='http://github.com/globocom/tornado-es',
+    A tornado-powered python library that provides asynchronous access to elasticsearch.
+    Extends the tornadoes package.""",
+    author='Matityahul',
+    url='http://github.com/Matityahul/tornado-es-lm',
+    download_url='http://github.com/Matityahul/tornado-es-lm',
     license='MIT',
     packages=find_packages(exclude=['ez_setup', 'testes']),
     classifiers=[
