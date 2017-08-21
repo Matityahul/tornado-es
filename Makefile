@@ -22,7 +22,7 @@ bulk:
 test: clean bulk unit
 
 unit:
-	@coverage run --branch `which nosetests` -vv --with-yanc -s tornadoes/tests/
+	@coverage run --branch `which nosetests` -vv --with-yanc -s tornadoes_lm/tests/
 	@coverage report -m --fail-under=80
 
 coverage-html: unit
