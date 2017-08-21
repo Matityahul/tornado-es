@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from tornadoes import ESConnection
+from tornadoes_lm import ESConnection
 from tornado import escape
 from tornado.testing import AsyncTestCase, gen_test
 from tornado.ioloop import IOLoop

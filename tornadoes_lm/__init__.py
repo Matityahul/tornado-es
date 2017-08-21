@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from tornadoes.models import BulkList
+from tornadoes_lm.models import BulkList
 
 from six.moves.urllib.parse import urlencode, urlparse
 from tornado.escape import json_encode, json_decode
