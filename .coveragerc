@@ -3,8 +3,8 @@ omit =
     *tests.py
 branch = True
 source =
-    tornadoes/__init__.py
-    tornadoes/models.py
+    tornadoes_lm/__init__.py
+    tornadoes_lm/models.py
 
 [report]
 exclude_lines =
