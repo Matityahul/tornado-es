@@ -1,8 +1,8 @@
-[![Build Status](https://secure.travis-ci.org/Matityahul/tornado-es-lm.svg?branch=master)](https://travis-ci.org/Matityahul/tornado-es-lm)
+[![Build Status](https://secure.travis-ci.org/Matityahul/tornado-es-ext.svg?branch=master)](https://travis-ci.org/Matityahul/tornado-es-ext)
 
 
-Tornado-es-lm
-=============
+Tornado-es-ext
+==============
 
 A tornado-powered python library that provides asynchronous access to elasticsearch. Extends [tornado-es](https://github.com/globocom/tornado-es).
 
@@ -12,7 +12,7 @@ Install
 
 Via pip:
 
-    pip install tornadoes-lm
+    pip install tornadoes-ext
 
 
 Usage
@@ -38,7 +38,7 @@ import json
 import tornado.ioloop
 import tornado.web
 
-from tornadoes_lm import ESConnection
+from tornadoes_ext import ESConnection
 
 
 class SearchHandler(tornado.web.RequestHandler):

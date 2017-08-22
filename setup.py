@@ -5,13 +5,13 @@ from setuptools import setup, find_packages
 VERSION = '3.0.0'
 
 setup(
-    name='tornadoes-lm',
+    name='tornadoes-ext',
     version=VERSION,
     description="A tornado-powered python library that provides asynchronous access to elasticsearch. Extends the tornadoes package.",
     author='Matityahul',
     author_email='lior.mati@gmail.com',
-    url='http://github.com/Matityahul/tornado-es-lm',
-    download_url='http://github.com/Matityahul/tornado-es-lm',
+    url='http://github.com/Matityahul/tornado-es-ext',
+    download_url='http://github.com/Matityahul/tornado-es-ext',
     license='MIT',
     packages=find_packages(exclude=['ez_setup', 'testes']),
     classifiers=[
