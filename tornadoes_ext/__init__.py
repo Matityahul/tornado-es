@@ -3,10 +3,12 @@
 from tornadoes_ext.models import BulkList
 
 from six.moves.urllib.parse import urlencode, urlparse
-from tornado.escape import json_encode, json_decode
+from tornado.escape import json_decode
 from tornado.ioloop import IOLoop
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from tornado.concurrent import return_future
+
+from tornadoes_ext.serializer import json_dumps
 
 
 class ESConnection(object):
@@ -58,7 +60,7 @@ class ESConnection(object):
 
     @return_future
     def search(self, callback, index='_all', type='', source=None, **kwargs):
-        source = json_encode(source or self._MATCH_ALL_QUERY)
+        source = json_dumps(source or self._MATCH_ALL_QUERY)
         path = self.create_path("search", index=index, type=type, **kwargs)
 
         self.post_by_path(path, callback, source)
@@ -75,6 +77,7 @@ class ESConnection(object):
         source = self.bulk.prepare_search()
         self.post_by_path(path, callback, source=source)
 
+    @return_future
     def post_by_path(self, path, callback, source):
         url = '%(url)s%(path)s' % {"url": self.url, "path": path}
         request_http = HTTPRequest(url, method="POST", body=source, **self.http_request_kwargs)
@@ -95,7 +98,7 @@ class ESConnection(object):
     @return_future
     def put(self, index, type, uid, contents, parameters=None, callback=None):
         self.request_document(
-            index, type, uid, "PUT", body=json_encode(contents),
+            index, type, uid, "PUT", body=json_dumps(contents),
             parameters=parameters, callback=callback)
 
     @return_future
@@ -108,7 +111,7 @@ class ESConnection(object):
 
         partial = { "doc": contents }
 
-        self.post_by_path(path, callback, source=json_encode(partial))
+        self.post_by_path(path, callback, source=json_dumps(partial))
 
     @return_future
     def delete(self, index, type, uid, parameters=None, callback=None):
@@ -126,10 +129,11 @@ class ESConnection(object):
         path = self.create_path('count', index=index, type=type, **parameters)
 
         if source:
-            source = json_encode(source)
+            source = json_dumps(source)
 
         self.post_by_path(path=path, callback=callback, source=source)
 
+    @return_future
     def request_document(self, index, type, uid, method="GET", body=None, parameters=None, callback=None):
         query_string = ESConnection._create_query_string(parameters)
 
