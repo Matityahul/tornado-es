@@ -315,7 +315,7 @@ class TestESConnectionWithTornadoGen(ESConnectionTestBase):
     @gen_test
     def test_use_of_custom_http_clients(self):
         mocked_http_client = Mock()
-        mocked_http_client.fetch.return_value = self._wrap_with_future(Mock())
+        mocked_http_client.fetch.return_value = self._wrap_with_future(Mock(code=200))
 
         es_connection = ESConnection("localhost",
                                      "9200",
