@@ -2,11 +2,15 @@
 
 from uuid import uuid4
 
+from six import StringIO
+from tornado.concurrent import Future
+from tornado.httpclient import HTTPResponse
+
 from tornadoes_ext import ESConnection
 from tornado import escape
 from tornado.testing import AsyncTestCase, gen_test
 from tornado.ioloop import IOLoop
-from mock import Mock
+from mock import Mock, mock
 
 from six.moves.urllib.parse import urlencode
 
@@ -334,6 +338,57 @@ class TestESConnectionWithTornadoGen(ESConnectionTestBase):
         with self.assertRaises(ValueError):
             ESConnection.from_uri("<<invalid:1234uri/")
 
+    @gen_test
+    def test_search_server_error_only_on_first_attempt(self):
+        expected_body = "valid body"
+        success_response_mock = self._wrap_with_future(expected_body, code=200, is_http_response=True)
+        failure_response_mock = self._wrap_with_future(expected_body, code=500, is_http_response=True)
+        self.es_connection.client = mock.Mock()
+        self.es_connection.client.fetch.side_effect = [failure_response_mock, success_response_mock]
+
+        response = yield self.es_connection.search(callback=self.stop)
+        self.assertEquals(response.body, expected_body)
+        self.assertEquals(self.es_connection.client.fetch.call_count, 2)
+
+    @gen_test
+    def test_search_server_error_with_no_retries(self):
+        expected_body = "valid body"
+        success_response_mock = self._wrap_with_future(expected_body, code=200, is_http_response=True)
+        failure_response_mock = self._wrap_with_future(expected_body, code=500, is_http_response=True)
+        self.es_connection.client = mock.Mock()
+        self.es_connection.client.fetch.side_effect = [failure_response_mock, success_response_mock]
+        self.es_connection.max_attempts = 1
+
+        response = yield self.es_connection.search(callback=self.stop)
+
+        self.assertEquals(response.code, 500)
+        self.es_connection.client.fetch.assert_called_once()
+
+    @gen_test
+    def test_search_timeout_only_on_first_attempt_without_retries_on_timeout(self):
+        expected_body = "valid body"
+        success_response_mock = self._wrap_with_future(expected_body, code=200, is_http_response=True)
+        failure_response_mock = self._wrap_with_future(expected_body, code=408, is_http_response=True)
+        self.es_connection.client = mock.Mock()
+        self.es_connection.client.fetch.side_effect = [failure_response_mock, success_response_mock]
+
+        response = yield self.es_connection.search(callback=self.stop)
+        self.assertEquals(response.code, 408)
+        self.es_connection.client.fetch.assert_called_once()
+
+    @gen_test
+    def test_search_timeout_only_on_first_attempt_with_timeout_retries(self):
+        expected_body = "valid body"
+        success_response_mock = self._wrap_with_future(expected_body, code=200, is_http_response=True)
+        failure_response_mock = self._wrap_with_future(expected_body, code=408, is_http_response=True)
+        self.es_connection.client = mock.Mock()
+        self.es_connection.client.fetch.side_effect = [failure_response_mock, success_response_mock]
+        self.es_connection.retry_on_timeout = True
+
+        response = yield self.es_connection.search(callback=self.stop)
+        self.assertEquals(response.body, expected_body)
+        self.assertEquals(self.es_connection.client.fetch.call_count, 2)
+
     def assertCount(self, response, count):
         response_dict = self._verify_status_code_and_return_response(response)
         self.assertEqual(response_dict["count"], count)
@@ -348,3 +403,20 @@ class TestESConnectionWithTornadoGen(ESConnectionTestBase):
         self.assertTrue(response.code in [200, 201], "Wrong response code: %d." % response.code)
         response = escape.json_decode(response.body)
         return response
+
+    @staticmethod
+    def _wrap_with_future(response, code=200, is_http_response=False, headers=None, error=None):
+        """
+        Sets the result of a ``Future`` object and return it.
+        If is_http_response is True, set response in HTTPResponse object.
+        """
+        if is_http_response:
+            response_mock = HTTPResponse(request='', headers=headers, effective_url='', buffer=StringIO(str(response)),
+                                         code=code, error=error)
+        else:
+            response_mock = response
+
+        future_result = Future()
+        future_result.set_result(response_mock)
+
+        return future_result

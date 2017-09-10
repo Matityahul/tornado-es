@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from tornado import gen
+from tornado.gen import coroutine, Return
 
 from tornadoes_ext.models import BulkList
 
@@ -10,16 +12,24 @@ from tornado.concurrent import return_future
 
 from tornadoes_ext.serializer import json_dumps
 
+SLEEP_TIME_BETWEEN_RETRIES = 0.02
+ATTEMPTS_NUMBER = 3
+
 
 class ESConnection(object):
     _MATCH_ALL_QUERY = {"query": {"match_all": {}}}
 
     def __init__(self, host='localhost', port='9200', io_loop=None, protocol='http', custom_client=None,
-                 http_request_kwargs=None):
+                 max_attempts=ATTEMPTS_NUMBER, retry_on_timeout=False, http_request_kwargs=None):
         self.io_loop = io_loop or IOLoop.instance()
         self.url = "%(protocol)s://%(host)s:%(port)s" % {"protocol": protocol, "host": host, "port": port}
         self.bulk = BulkList()
         self.client = custom_client or AsyncHTTPClient(self.io_loop)
+        self.max_attempts = max_attempts
+        self.retry_on_timeout = retry_on_timeout
+
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be 1 or higher")
 
         # extra kwargs passed to tornado's HTTPRequest class e.g. request_timeout
         self.http_request_kwargs = http_request_kwargs or {}
@@ -36,6 +46,23 @@ class ESConnection(object):
             parameters[param] = param_value
 
         return urlencode(parameters)
+
+    @coroutine
+    def _fetch(self, request, **kwargs):
+        for i in range(self.max_attempts):
+            response = yield self.client.fetch(request, raise_error=False, **kwargs)
+
+            if response.error:
+                retry = response.code >= 500 or (self.retry_on_timeout and response.code in (408, 429,))
+
+                # Number of retries was exceeded, or error is a server error,
+                # but not 408-Request Timeout nor 429-Too Many Requests
+                if not retry or i + 1 == self.max_attempts:
+                    raise Return(response)
+
+                yield gen.sleep(SLEEP_TIME_BETWEEN_RETRIES)
+            else:
+                raise Return(response)
 
     @classmethod
     def from_uri(cls, uri, io_loop=None, custom_client=None, http_request_kwargs=None):
@@ -81,12 +108,12 @@ class ESConnection(object):
     def post_by_path(self, path, callback, source):
         url = '%(url)s%(path)s' % {"url": self.url, "path": path}
         request_http = HTTPRequest(url, method="POST", body=source, **self.http_request_kwargs)
-        self.client.fetch(request=request_http, callback=callback)
+        self._fetch(request=request_http, callback=callback)
 
     @return_future
     def get_by_path(self, path, callback):
         url = '%(url)s%(path)s' % {"url": self.url, "path": path}
-        self.client.fetch(url, callback, **self.http_request_kwargs)
+        self._fetch(url, callback=callback, **self.http_request_kwargs)
 
     @return_future
     def get(self, index, type, uid, callback, parameters=None):
@@ -150,4 +177,4 @@ class ESConnection(object):
             request_arguments['body'] = body
 
         request = HTTPRequest(url, **request_arguments)
-        self.client.fetch(request, callback)
+        self._fetch(request, callback=callback)
